@@ -659,7 +659,7 @@ class ServerClient(VsphereClient):
                 # Without these vars, customization is silently skipped
                 # but deployment 'succeeds'
                 ident.userData.fullName = vm_name
-                ident.userData.orgName = "Organisation"
+                ident.userData.orgName = props.get('windows_organization')
                 ident.userData.productId = ""
 
                 # Configure guiUnattended

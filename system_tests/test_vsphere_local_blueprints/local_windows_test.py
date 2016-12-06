@@ -27,6 +27,7 @@ from . import (
     get_runtime_props,
     check_vm_name_in_runtime_properties,
 )
+from .windows_command_helper import WindowsCommandHelper
 
 
 class VsphereLocalWindowsTest(TestCase):
@@ -60,7 +61,7 @@ class VsphereLocalWindowsTest(TestCase):
                     self.env.cloudify_config[optional_key]
 
         # Expecting the blueprint in ../resources/windows, e.g.
-        # ../resources/windows/password_and_timezone.yaml
+        # ../resources/windows/windows_basic_config.yaml
         blueprints_path = os.path.split(os.path.abspath(__file__))[0]
         blueprints_path = os.path.split(blueprints_path)[0]
         self.blueprints_path = os.path.join(
@@ -102,10 +103,10 @@ class VsphereLocalWindowsTest(TestCase):
             assert 'properties.agent_config.password' in err.message
             self.logger.info('Windows passwordless deploy has correct error.')
 
-    def test_password_and_timezone(self):
+    def test_windows_basic_config(self):
         blueprint = os.path.join(
             self.blueprints_path,
-            'password_and_timezone-blueprint.yaml'
+            'windows_basic_config-blueprint.yaml'
         )
 
         if self.env.install_plugins:
@@ -118,20 +119,20 @@ class VsphereLocalWindowsTest(TestCase):
             'password and timezone set'
         )
 
-        self.password_and_timezone_env = local.init_env(
+        self.windows_basic_config_env = local.init_env(
             blueprint,
             inputs=self.ext_inputs,
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
-        self.password_and_timezone_env.execute(
+        self.windows_basic_config_env.execute(
             'install',
             task_retries=50,
             task_retry_interval=3,
         )
 
-        self.addCleanup(self.cleanup_password_and_timezone)
+        self.addCleanup(self.cleanup_windows_basic_config)
 
-        vm_ip = self.password_and_timezone_env.outputs()['vm_ip']
+        vm_ip = self.windows_basic_config_env.outputs()['vm_ip']
         vm_password = self.ext_inputs['vm_password']
 
         self.check_vm_timezone_offset_is(
@@ -139,6 +140,24 @@ class VsphereLocalWindowsTest(TestCase):
             vm_ip=vm_ip,
             vm_password=vm_password,
         )
+
+        vt = WindowsCommandHelper(
+            self.ext_inputs['vsphere_host'],
+            self.ext_inputs['vsphere_username'],
+            self.ext_inputs['vsphere_password'],
+        )
+
+        value = vt.run_windows_command(
+            self.windows_basic_config_env.outputs()['vm_name'],
+            'administrator',
+            self.ext_inputs['vm_password'],
+            'reg query "HKLM\\Software\\Microsoft\\Windows NT\\'
+            'CurrentVersion" /v RegisteredOrganization',
+        )['output']
+
+        self.assertEqual(
+            'Cloudify Test',
+            value.split('REG_SZ')[1].strip())
 
     def test_agent_config_password_and_default_timezone(self):
         blueprint = os.path.join(
@@ -283,8 +302,8 @@ class VsphereLocalWindowsTest(TestCase):
             task_retry_interval=3,
         )
 
-    def cleanup_password_and_timezone(self):
-        self.password_and_timezone_env.execute(
+    def cleanup_test_windows_basic_config(self):
+        self.windows_basic_config_env.execute(
             'uninstall',
             task_retries=50,
             task_retry_interval=3,
