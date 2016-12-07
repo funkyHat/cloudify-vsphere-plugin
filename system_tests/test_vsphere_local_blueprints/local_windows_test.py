@@ -14,6 +14,7 @@
 #    * limitations under the License.
 
 import os
+from copy import copy
 
 from cosmo_tester.framework.testenv import TestCase
 from cloudify.workflows import local
@@ -122,8 +123,7 @@ class VsphereLocalWindowsTest(TestCase):
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
 
-        self.addCleanup(self.cleanup_windows_basic_config)
-
+        self._add_env_cleanup(self.windows_basic_config_env)
         self.windows_basic_config_env.execute(
             'install',
             task_retries=50,
@@ -182,13 +182,13 @@ class VsphereLocalWindowsTest(TestCase):
             inputs=self.ext_inputs,
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
+
+        self._add_env_cleanup(self.agent_config_password_and_no_timezone_env)
         self.agent_config_password_and_no_timezone_env.execute(
             'install',
             task_retries=50,
             task_retry_interval=3,
         )
-
-        self.addCleanup(self.cleanup_agent_config_password_and_no_timezone)
 
     def test_naming(self):
         blueprint = os.path.join(
@@ -208,13 +208,13 @@ class VsphereLocalWindowsTest(TestCase):
             inputs=self.ext_inputs,
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
+
+        self._add_env_cleanup(self.naming_env)
         self.naming_env.execute(
             'install',
             task_retries=50,
             task_retry_interval=3,
         )
-
-        self.addCleanup(self.cleanup_naming)
 
         self.logger.info('Searching for appropriately named VM')
         vms = get_vsphere_vms_list(
@@ -242,23 +242,73 @@ class VsphereLocalWindowsTest(TestCase):
             logger=self.logger,
         )
 
-    def cleanup_naming(self):
-        self.naming_env.execute(
-            'uninstall',
-            task_retries=50,
-            task_retry_interval=3,
+    def test_validation_empty_org_name(self):
+        blueprint = os.path.join(
+            self.blueprints_path,
+            'windows_basic_config-blueprint.yaml',
         )
 
-    def cleanup_windows_basic_config(self):
-        self.windows_basic_config_env.execute(
-            'uninstall',
-            task_retries=50,
-            task_retry_interval=3,
+        self.logger.info(
+            'attempting to deploy with blank windows_organization')
+
+        inputs = copy(self.ext_inputs)
+
+        inputs['windows_organization'] = ''
+
+        self.validation_env = local.init_env(
+            blueprint,
+            inputs=inputs,
+            name=self._testMethodName,
+            ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
+
+        with self.assertRaises(RuntimeError) as e:
+            self.validation_env.execute(
+                'install',
+                task_retries=50,
+                task_retry_interval=3,
+            )
+
+        self.assertIn('must not be blank', str(e.exception))
+
+    def test_validation_org_name_too_long(self):
+        blueprint = os.path.join(
+            self.blueprints_path,
+            'windows_basic_config-blueprint.yaml',
         )
 
-    def cleanup_agent_config_password_and_no_timezone(self):
-        self.agent_config_password_and_no_timezone_env.execute(
+        self.logger.info(
+            'attempting to deploy with blank windows_organization')
+
+        inputs = copy(self.ext_inputs)
+
+        inputs['windows_organization'] = 'a' * 65
+
+        self.validation_env = local.init_env(
+            blueprint,
+            inputs=inputs,
+            name=self._testMethodName,
+            ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
+
+        # self._add_env_cleanup(self.validation_env)
+
+        with self.assertRaises(RuntimeError) as e:
+            self.validation_env.execute(
+                'install',
+                task_retries=50,
+                task_retry_interval=3,
+            )
+
+        self.assertIn('64', str(e.exception))
+
+    def _add_env_cleanup(
+        self,
+        env,
+        task_retries=50,
+        task_retry_interval=3,
+    ):
+        self.addCleanup(
+            env.execute,
             'uninstall',
-            task_retries=50,
-            task_retry_interval=3,
+            task_retries=task_retries,
+            task_retry_interval=task_retry_interval,
         )
