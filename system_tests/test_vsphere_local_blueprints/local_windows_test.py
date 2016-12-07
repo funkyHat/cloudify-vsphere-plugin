@@ -14,13 +14,10 @@
 #    * limitations under the License.
 
 import os
-import socket
-import time
 
 from cosmo_tester.framework.testenv import TestCase
 from cloudify.workflows import local
 from cloudify_cli import constants as cli_constants
-import winrm
 from . import (
     get_vsphere_vms_list,
     check_correct_vm_name,
@@ -124,24 +121,17 @@ class VsphereLocalWindowsTest(TestCase):
             inputs=self.ext_inputs,
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
+
+        self.addCleanup(self.cleanup_windows_basic_config)
+
         self.windows_basic_config_env.execute(
             'install',
             task_retries=50,
             task_retry_interval=3,
         )
 
-        self.addCleanup(self.cleanup_windows_basic_config)
-
-        vm_ip = self.windows_basic_config_env.outputs()['vm_ip']
-        vm_password = self.ext_inputs['vm_password']
-
-        self.check_vm_timezone_offset_is(
-            offset=-7,
-            vm_ip=vm_ip,
-            vm_password=vm_password,
-        )
-
         vt = WindowsCommandHelper(
+            self.logger,
             self.ext_inputs['vsphere_host'],
             self.ext_inputs['vsphere_username'],
             self.ext_inputs['vsphere_password'],
@@ -158,6 +148,18 @@ class VsphereLocalWindowsTest(TestCase):
         self.assertEqual(
             'Cloudify Test',
             value.split('REG_SZ')[1].strip())
+
+        tz_value = vt.run_windows_command(
+            self.windows_basic_config_env.outputs()['vm_name'],
+            'administrator',
+            self.ext_inputs['vm_password'],
+            'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\'
+            'TimeZoneInformation" /v TimeZoneKeyName',
+        )['output']
+
+        self.assertEqual(
+            'Mountain Standard Time',
+            tz_value.split('REG_SZ')[1].strip())
 
     def test_agent_config_password_and_default_timezone(self):
         blueprint = os.path.join(
@@ -240,61 +242,6 @@ class VsphereLocalWindowsTest(TestCase):
             logger=self.logger,
         )
 
-    def check_vm_timezone_offset_is(self, offset, vm_ip, vm_password):
-        timezone_info = None
-        retries = 0
-
-        self.logger.info('Trying to retrieve timezone info')
-        # Huge retry to allow Windows to finish sysprep+reboot
-        while timezone_info is None and retries <= 100:
-            try:
-                winrmsession = winrm.Session(
-                    vm_ip,
-                    auth=(
-                        'Administrator',
-                        vm_password
-                    )
-                )
-                winrm_result = winrmsession.run_ps(
-                    "[TimeZoneInfo]::Local | "
-                    "select-object -expandproperty BaseUtcOffset"
-                )
-                self.logger.info(winrm_result)
-                timezone_info = winrm_result.std_out.splitlines()
-                self.logger.info(timezone_info)
-            except winrm.exceptions.WinRMTransportError:
-                self.logger.info('Waiting for server response...')
-                time.sleep(10)
-                retries += 1
-            except socket.error:
-                # These can also occur at some points in the Windows startup
-                self.logger.info('Waiting for server response...')
-                time.sleep(10)
-                retries += 1
-
-        assert timezone_info is not None
-
-        self.logger.info('Looking for hours offset')
-        hours = None
-        for line in timezone_info:
-            split_line = line.split(':')
-            if len(split_line) == 2:
-                key, value = split_line
-            else:
-                continue
-            self.logger.debug('Saw {line}'.format(line=line))
-            if key.strip() == 'Hours':
-                hours = int(value.strip())
-                self.logger.info(
-                    'Hours offset found: {hours}'.format(
-                        hours=hours
-                    )
-                )
-                break
-
-        assert hours == offset
-        self.logger.info('Offset was correct!')
-
     def cleanup_naming(self):
         self.naming_env.execute(
             'uninstall',
@@ -302,7 +249,7 @@ class VsphereLocalWindowsTest(TestCase):
             task_retry_interval=3,
         )
 
-    def cleanup_test_windows_basic_config(self):
+    def cleanup_windows_basic_config(self):
         self.windows_basic_config_env.execute(
             'uninstall',
             task_retries=50,

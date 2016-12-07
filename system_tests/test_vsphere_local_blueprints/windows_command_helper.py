@@ -22,7 +22,8 @@ import requests
 
 
 class WindowsCommandHelper(object):
-    def __init__(self, host, user, password, port=443):
+    def __init__(self, logger, host, user, password, port=443):
+        self.logger = logger
         self.host = host
         self.user = user
         self.password = password
@@ -49,9 +50,8 @@ class WindowsCommandHelper(object):
         return self._content
 
     def _get_obj_list(self, vimtype):
-        content = self.content(self.si)
-        container_view = content.viewManager.CreateContainerView(
-            content.rootFolder, vimtype, True
+        container_view = self.content.viewManager.CreateContainerView(
+            self.content.rootFolder, vimtype, True
         )
         objects = container_view.view
         container_view.Destroy()
@@ -59,7 +59,7 @@ class WindowsCommandHelper(object):
 
     def get_obj_by_name(self, vimtype, name, parent_name=None):
         obj = None
-        objects = self._get_obj_list(vimtype, self.si)
+        objects = self._get_obj_list(vimtype)
         for c in objects:
             if c.name.lower() == name.lower()\
                     and (parent_name is None or
@@ -74,7 +74,7 @@ class WindowsCommandHelper(object):
             vm_user,
             vm_password,
             command,
-            timeout=60,  # seconds
+            timeout=300,  # seconds
     ):
         """
         Runs a command in a Windows VM & returns the result
@@ -84,25 +84,37 @@ class WindowsCommandHelper(object):
             username=vm_user,
             password=vm_password)
 
-        vm = self.get_obj_by_name([vim.VirtualMachine], vm_name, self.si)
+        vm = self.get_obj_by_name([vim.VirtualMachine], vm_name)
 
         ps = vim.vm.guest.ProcessManager.ProgramSpec(
-            programPath='c:/Windows/System32/cmd.exe',
-            arguments=r'/c {cmd} > c:\windows\temp\cfy_test_cmd'.format(
+            programPath=r'c:\Windows\System32\cmd.exe',
+            arguments=r'/c {cmd} 2>&1 > c:\windows\temp\cfy_test_cmd'.format(
                 cmd=command))
 
-        pid = pm.StartProgramInGuest(vm, creds, ps)
+        for i in range(timeout / 3):
+            try:
+                pid = pm.StartProgramInGuest(vm, creds, ps)
+                break
+            except (
+                    vim.fault.InvalidGuestLogin,
+                    vim.fault.GuestOperationsUnavailable,
+            ) as e:
+                self.logger.info("invalid login. Waiting. {}".format(str(e)))
+                sleep(3)
+        else:
+            raise CommandTimeoutError('running', command)
 
         for i in range(timeout / 3):
             sleep(3)
             procs = {
                 proc.pid: proc
-                for proc in pm.ListProcessesInGuest(vm, creds)
+                for proc
+                in pm.ListProcessesInGuest(vm, creds)
             }
             if procs[pid].endTime:
                 break
         else:
-            raise CommandTimeoutError(command)
+            raise CommandTimeoutError('retreiving', command)
 
         return {
             'output': requests.get(
@@ -110,7 +122,7 @@ class WindowsCommandHelper(object):
                 fileManager.InitiateFileTransferFromGuest(
                     vm,
                     creds,
-                    guestFilePath='c:\\windows\\temp\\stuff',
+                    guestFilePath='c:\\windows\\temp\\cfy_test_cmd',
                 ).url,
                 verify=False,
             ).text,
