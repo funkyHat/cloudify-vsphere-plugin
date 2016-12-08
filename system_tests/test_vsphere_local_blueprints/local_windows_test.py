@@ -262,11 +262,20 @@ class VsphereLocalWindowsTest(TestCase):
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
 
         with self.assertRaises(RuntimeError) as e:
-            self.validation_env.execute(
-                'install',
-                task_retries=50,
-                task_retry_interval=3,
-            )
+            try:
+                self.validation_env.execute(
+                    'install',
+                    task_retries=50,
+                    task_retry_interval=3,
+                )
+            except:
+                raise
+            else:
+                self.validation_env.execute(
+                    'uninstall',
+                    task_retries=50,
+                    task_retry_interval=3,
+                )
 
         self.assertIn('must not be blank', str(e.exception))
 
@@ -289,14 +298,21 @@ class VsphereLocalWindowsTest(TestCase):
             name=self._testMethodName,
             ignored_modules=cli_constants.IGNORED_LOCAL_WORKFLOW_MODULES)
 
-        # self._add_env_cleanup(self.validation_env)
-
         with self.assertRaises(RuntimeError) as e:
-            self.validation_env.execute(
-                'install',
-                task_retries=50,
-                task_retry_interval=3,
-            )
+            try:
+                self.validation_env.execute(
+                    'install',
+                    task_retries=50,
+                    task_retry_interval=3,
+                )
+            except:
+                raise
+            else:
+                self.validation_env.execute(
+                    'uninstall',
+                    task_retries=50,
+                    task_retry_interval=3,
+                )
 
         self.assertIn('64', str(e.exception))
 
