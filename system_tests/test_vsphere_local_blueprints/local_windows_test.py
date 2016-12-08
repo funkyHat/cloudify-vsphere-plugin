@@ -230,7 +230,7 @@ class VsphereLocalWindowsTest(TestCase):
             logger=self.logger,
         )
 
-        name_prefix = 'aaaaaaaa'
+        name_prefix = 'aaaaaaa'
         check_correct_vm_name(
             vms=vms,
             name_prefix=name_prefix,
