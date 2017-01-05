@@ -133,6 +133,7 @@ class VsphereLocalWindowsTest(TestCase):
             self.ext_inputs['vm_password'],
             'reg query "HKLM\\Software\\Microsoft\\Windows NT\\'
             'CurrentVersion" /v RegisteredOrganization',
+            timeout=1500,
         )['output']
 
         self.assertEqual(
@@ -211,7 +212,9 @@ class VsphereLocalWindowsTest(TestCase):
             logger=self.logger,
         )
 
-        name_prefix = node_id
+        # Depending on how long the id suffix is, the prefix length will vary
+        name_prefix = 'aaaaaaa'
+        name_prefix = 'aaaaaaaa'
         check_correct_vm_name(
             vms=vms,
             name_prefix=name_prefix,
