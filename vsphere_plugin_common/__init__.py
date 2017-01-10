@@ -158,28 +158,6 @@ class VsphereClient(object):
     def is_server_suspended(self, server):
         return server.summary.runtime.powerState.lower() == "suspended"
 
-    def get_obj_list(self, vimtype, properties=None):
-        # TODO: Deprecate
-        if properties is not None:
-            if len(vimtype) > 1:
-                raise cfy_exc.NonRecoverableError(
-                    "Object list lookups with properties can only be "
-                    "made for a single resource type."
-                )
-            objects = self._collect_properties(
-                obj_type=vimtype[0],
-                path_set=properties,
-            )
-
-            result_object = namedtuple('result', properties)
-            objects = [
-                result_object(obj) for obj in objects
-            ]
-        else:
-            with _ContainerView(vimtype, self.si) as view:
-                objects = view.view
-        return objects
-
     def _build_resource_pool_object(self, base_pool_id, resource_pools):
         rp_object = namedtuple(
             'resource_pool',
@@ -1024,7 +1002,7 @@ class ServerClient(VsphereClient):
                 issues.append(error)
 
         if allowed_clusters:
-            cluster_list = self.get_clusters()
+            cluster_list = self._get_clusters()
             cluster_names = [cluster.name for cluster in cluster_list]
             error = self._validate_allowed(
                 'cluster',
@@ -1035,7 +1013,7 @@ class ServerClient(VsphereClient):
                 issues.append(error)
 
         if allowed_datastores:
-            datastore_list = self.get_datastores()
+            datastore_list = self._get_datastores()
             datastore_names = [datastore.name for datastore in datastore_list]
             error = self._validate_allowed(
                 'datastore',
@@ -1460,7 +1438,6 @@ class ServerClient(VsphereClient):
         return server.summary.runtime.powerState.lower() == "poweredon"
 
     def is_server_guest_running(self, server):
-        # TODO: deprecate
         return server.guest.guestState == "running"
 
     def delete_server(self, server):
@@ -1472,17 +1449,10 @@ class ServerClient(VsphereClient):
         ctx.logger.debug("Server is now deleted.")
 
     def get_server_by_name(self, name):
-        # TODO: Deprecate
         return self._get_obj_by_name(vim.VirtualMachine, name)
 
     def get_server_by_id(self, id):
-        # TODO: deprecate
         return self._get_obj_by_id(vim.VirtualMachine, id)
-
-    def get_server_list(self):
-        # TODO: Deprecate
-        ctx.logger.debug("Entering server list procedure.")
-        return self._get_vms()
 
     def find_candidate_hosts(self,
                              resource_pool,
@@ -1510,7 +1480,7 @@ class ServerClient(VsphereClient):
             )
 
         if allowed_clusters:
-            cluster_list = self.get_clusters()
+            cluster_list = self._get_clusters()
             cluster_names = [cluster.name for cluster in cluster_list]
             valid_clusters = set(allowed_clusters).union(set(cluster_names))
             ctx.logger.debug(
@@ -1705,7 +1675,7 @@ class ServerClient(VsphereClient):
         best_datastore_weighting = None
 
         if allowed_datastores:
-            datastore_list = self.get_datastores()
+            datastore_list = self._get_datastores()
             datastore_names = [datastore.name for datastore in datastore_list]
 
             valid_datastores = set(allowed_datastores).union(
@@ -1967,18 +1937,6 @@ class ServerClient(VsphereClient):
         child_resource_pools = self.recurse_resource_pools(base_resource_pool)
         resource_pools.extend(child_resource_pools)
         return resource_pools
-
-    def get_clusters(self):
-        """
-            Get a list of all clusters.
-        """
-        return self._get_clusters()
-
-    def get_datastores(self):
-        """
-            Get a list of all datastores.
-        """
-        return self._get_datastores()
 
     def get_host_cluster_membership(self, host):
         """
@@ -2335,14 +2293,6 @@ class NetworkClient(VsphereClient):
         task = dv_port_group.obj.Destroy()
         self._wait_for_task(task)
         ctx.logger.debug("Port deleted.")
-
-    def get_dv_port_group(self, name):
-        # TODO: Deprecate
-        dv_port_group = self._get_obj_by_name(
-            vim.dvs.DistributedVirtualPortgroup,
-            name,
-        )
-        return dv_port_group
 
 
 class StorageClient(VsphereClient):
