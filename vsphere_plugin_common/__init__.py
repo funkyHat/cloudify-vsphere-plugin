@@ -18,6 +18,7 @@ import os
 import re
 import time
 import atexit
+from copy import copy
 from functools import wraps
 from collections import namedtuple
 
@@ -158,6 +159,151 @@ class VsphereClient(object):
     def is_server_suspended(self, server):
         return server.summary.runtime.powerState.lower() == "suspended"
 
+    def _convert_props_list_to_dict(self, props_list):
+        the_dict = {}
+        split_list = [
+            item.split('.', 1) for item in props_list
+        ]
+        vals = [
+            item[0] for item in split_list
+            if len(item) == 1
+        ]
+        keys = [
+            item for item in split_list
+            if len(item) > 1
+        ]
+        the_dict['_values'] = vals
+        for item in keys:
+            key_name = item[0]
+            sub_keys = item[1:]
+            dict_entry = the_dict.get(key_name, {})
+            update_dict = self._convert_props_list_to_dict(
+                sub_keys
+            )
+            if '_values' in dict_entry.keys():
+                update_dict['_values'].extend(dict_entry['_values'])
+            dict_entry.update(update_dict)
+            the_dict[key_name] = dict_entry
+        return the_dict
+
+    def _get_platform_sub_results(self, platform_results, target_key):
+        sub_results = {}
+        for key, value in platform_results.items():
+            key_components = key.split('.', 1)
+            if key_components[0] == target_key:
+                sub_results[key_components[1]] = value
+        return sub_results
+
+    def _make_cached_object(self, obj_name, props_dict, platform_results,
+                            root_object=True, other_entity_mappings=None,
+                            use_cache=True):
+        just_keys = props_dict.keys()
+        if '_values' in just_keys:
+            just_keys.remove('_values')
+        object_keys = copy(just_keys)
+        object_keys.extend(props_dict.get('_values', []))
+        if root_object:
+            object_keys.extend(['id', 'obj'])
+        object_keys = set(object_keys)
+        obj = namedtuple(
+            obj_name,
+            object_keys,
+        )
+
+        args = {}
+        for key in props_dict.get('_values', []):
+            args[key] = platform_results[key]
+        if root_object:
+            args['id'] = platform_results['obj']._moId
+            args['obj'] = platform_results['obj']
+
+        if root_object and other_entity_mappings:
+            for map_type in ('static', 'dynamic', 'single'):
+                mappings = other_entity_mappings.get(map_type, {})
+                for mapping, other_entities in mappings.items():
+                    if map_type == 'single':
+                        mapped = None
+                        map_id = args[mapping]._moId
+                        for entity in other_entities:
+                            if entity.id == map_id:
+                                mapped = entity
+                                break
+                    else:
+                        mapping_ids = [
+                            map_obj._moId for map_obj in args[mapping]
+                        ]
+
+                        mapped = [
+                            other_entity for other_entity in other_entities
+                            if other_entity.id in mapping_ids
+                        ]
+
+                        if (
+                            map_type == 'static'
+                            and len(mapped) != len(args[mapping])
+                        ):
+                            mapped = None
+
+                    if mapped is None:
+                        return ctx.operation.retry(
+                            'Platform {entity} configuration changed '
+                            'while building {obj_name} cache.'.format(
+                                entity=mapping,
+                                obj_name=obj_name,
+                            )
+                        )
+
+                    args[mapping] = mapped
+
+        for key in just_keys:
+            sub_object_name = '{name}_{sub}'.format(
+                name=obj_name,
+                sub=key,
+            )
+            args[key] = self._make_cached_object(
+                obj_name=sub_object_name,
+                props_dict=props_dict[key],
+                platform_results=self._get_platform_sub_results(
+                    platform_results=platform_results,
+                    target_key=key,
+                ),
+                root_object=False,
+            )
+
+        result = obj(
+            **args
+        )
+
+        return result
+
+    def _get_entity(self, entity_name, props, vimtype, use_cache=True,
+                    other_entity_mappings=None):
+        if entity_name in self._cache and use_cache:
+            return self._cache[entity_name]
+
+        platform_results = self._collect_properties(
+            vimtype,
+            path_set=props,
+        )
+
+        props_dict = self._convert_props_list_to_dict(props)
+
+        results = []
+        for result in platform_results:
+            results.append(
+                self._make_cached_object(
+                    obj_name=entity_name,
+                    props_dict=props_dict,
+                    platform_results=result,
+                    other_entity_mappings=other_entity_mappings,
+                    use_cache=use_cache,
+                )
+            )
+
+        self._cache[entity_name] = results
+
+        return results
+
     def _build_resource_pool_object(self, base_pool_id, resource_pools):
         rp_object = namedtuple(
             'resource_pool',
@@ -215,125 +361,52 @@ class VsphereClient(object):
         return resource_pools
 
     def _get_clusters(self, use_cache=True):
-        if 'cluster' in self._cache and use_cache:
-            return self._cache['cluster']
-
         properties = [
             'name',
             'resourcePool',
         ]
-        cluster_object = namedtuple(
-            'cluster',
-            ['name', 'id', 'resourcePool', 'obj'],
+
+        return self._get_entity(
+            entity_name='cluster',
+            props=properties,
+            vimtype=vim.ClusterComputeResource,
+            use_cache=use_cache,
+            other_entity_mappings={
+                'single': {
+                    'resourcePool': self._get_resource_pools(
+                        use_cache=use_cache,
+                    ),
+                },
+            },
         )
-
-        results = self._collect_properties(
-            vim.ClusterComputeResource,
-            path_set=properties,
-        )
-
-        resource_pools = self._get_resource_pools(use_cache)
-
-        clusters = []
-        for item in results:
-            resource_pool = None
-            resource_pool_id = item['resourcePool']._moId
-            for pool in resource_pools:
-                if pool.id == resource_pool_id:
-                    resource_pool = pool
-                    break
-            if resource_pool is None:
-                return ctx.operation.retry(
-                    'Resource pools changed while getting cluster details.'
-                )
-
-            cluster = cluster_object(
-                name=item['name'],
-                id=item['obj']._moId,
-                resourcePool=resource_pool,
-                obj=item['obj'],
-            )
-            clusters.append(cluster)
-
-        self._cache['cluster'] = clusters
-
-        return clusters
 
     def _get_datacenters(self, use_cache=True):
-        if 'datacenter' in self._cache and use_cache:
-            return self._cache['datacenter']
-
         properties = [
             'name',
             'vmFolder',
         ]
-        datacenter_object = namedtuple(
-            'datacenter',
-            ['name', 'vmFolder', 'id', 'obj'],
+
+        return self._get_entity(
+            entity_name='datacenter',
+            props=properties,
+            vimtype=vim.Datacenter,
+            use_cache=use_cache,
         )
-
-        results = self._collect_properties(
-            vim.Datacenter,
-            path_set=properties,
-        )
-
-        datacenters = []
-        for item in results:
-            datacenter = datacenter_object(
-                name=item['name'],
-                vmFolder=item['vmFolder'],
-                id=item['obj']._moId,
-                obj=item['obj'],
-            )
-            datacenters.append(datacenter)
-
-        self._cache['datacenter'] = datacenters
-
-        return datacenters
 
     def _get_datastores(self, use_cache=True):
-        if 'datastore' in self._cache and use_cache:
-            return self._cache['datastore']
-
         properties = [
             'name',
             'overallStatus',
             'summary.accessible',
             'summary.freeSpace',
         ]
-        datastore_object = namedtuple(
-            'datastore',
-            ['name', 'id', 'summary', 'overallStatus', 'obj'],
+
+        return self._get_entity(
+            entity_name='datastore',
+            props=properties,
+            vimtype=vim.Datastore,
+            use_cache=use_cache,
         )
-        datastore_summary = namedtuple(
-            'datastore_summary',
-            ['accessible', 'freeSpace'],
-        )
-
-        results = self._collect_properties(
-            vim.Datastore,
-            path_set=properties,
-        )
-
-        datastores = []
-        for item in results:
-            summary = datastore_summary(
-                accessible=item['summary.accessible'],
-                freeSpace=item['summary.freeSpace'],
-            )
-
-            datastore = datastore_object(
-                name=item['name'],
-                id=item['obj']._moId,
-                overallStatus=item['overallStatus'],
-                summary=summary,
-                obj=item['obj'],
-            )
-            datastores.append(datastore)
-
-        self._cache['datastore'] = datastores
-
-        return datastores
 
     def _get_networks(self, use_cache=True):
         if 'network' in self._cache and use_cache:
@@ -443,42 +516,19 @@ class VsphereClient(object):
         return extra_details
 
     def _get_dvswitches(self, use_cache=True):
-        if 'dvswitch' in self._cache and use_cache:
-            return self._cache['dvswitch']
-
         properties = [
             'name',
             'uuid',
         ]
 
-        dvswitch_object = namedtuple(
-            'dvswitch',
-            ['name', 'uuid', 'id', 'obj']
+        return self._get_entity(
+            entity_name='dvswitch',
+            props=properties,
+            vimtype=vim.dvs.VmwareDistributedVirtualSwitch,
+            use_cache=use_cache,
         )
-
-        results = self._collect_properties(
-            vim.dvs.VmwareDistributedVirtualSwitch,
-            path_set=properties,
-        )
-
-        dvswitches = []
-        for item in results:
-            dvswitch = dvswitch_object(
-                name=item['name'],
-                id=item['obj']._moId,
-                obj=item['obj'],
-                uuid=item['uuid'],
-            )
-            dvswitches.append(dvswitch)
-
-        self._cache['dvswitch'] = dvswitches
-
-        return dvswitches
 
     def _get_vms(self, use_cache=True):
-        if 'vm' in self._cache and use_cache:
-            return self._cache['vm']
-
         properties = [
             'name',
             'summary',
@@ -489,119 +539,20 @@ class VsphereClient(object):
             'network',
         ]
 
-        vm_object = namedtuple(
-            'vm',
-            ['name', 'config', 'id', 'summary', 'datastore', 'guest', 'obj',
-             'network'],
+        return self._get_entity(
+            entity_name='vm',
+            props=properties,
+            vimtype=vim.VirtualMachine,
+            use_cache=use_cache,
+            other_entity_mappings={
+                'static': {
+                    'network': self._get_networks(use_cache=use_cache),
+                    'datastore': self._get_datastores(use_cache=use_cache),
+                },
+            },
         )
-        vm_summary = namedtuple(
-            'vm_summary',
-            ['config', 'runtime', 'storage'],
-        )
-        vm_summary_config = namedtuple(
-            'vm_summary_config',
-            ['template', 'memorySizeMB', 'numCpu'],
-        )
-        vm_summary_runtime = namedtuple(
-            'vm_summary_runtime',
-            ['powerState'],
-        )
-        vm_summary_storage = namedtuple(
-            'vm_summary_storage',
-            ['committed', 'uncommitted'],
-        )
-
-        vm_config = namedtuple(
-            'vm_config',
-            ['hardware'],
-        )
-        vm_config_hardware = namedtuple(
-            'vm_config_hardware',
-            ['device'],
-        )
-
-        vm_guest = namedtuple(
-            'vm_guest',
-            ['guestState', 'net'],
-        )
-
-        results = self._collect_properties(
-            vim.VirtualMachine,
-            path_set=properties,
-        )
-
-        datastores = self._get_datastores(use_cache)
-        networks = self._get_networks(use_cache)
-
-        vms = []
-        for item in results:
-            summary_runtime = vm_summary_runtime(
-                powerState=item['summary'].runtime.powerState,
-            )
-            summary_storage = vm_summary_storage(
-                committed=item['summary'].storage.committed,
-                uncommitted=item['summary'].storage.uncommitted,
-            )
-            summary_config = vm_summary_config(
-                template=item['summary'].config.template,
-                memorySizeMB=item['summary'].config.memorySizeMB,
-                numCpu=item['summary'].config.numCpu,
-            )
-            summary = vm_summary(
-                config=summary_config,
-                runtime=summary_runtime,
-                storage=summary_storage,
-            )
-
-            config = vm_config(
-                hardware=vm_config_hardware(
-                    device=item['config.hardware.device'],
-                )
-            )
-
-            guest = vm_guest(
-                guestState=item['guest.guestState'],
-                net=item['guest.net'],
-            )
-
-            datastore_ids = [
-                datastore._moId for datastore in item['datastore']
-            ]
-            vm_datastores = [
-                datastore for datastore in datastores
-                if datastore.id in datastore_ids
-            ]
-            if len(datastore_ids) != len(vm_datastores):
-                return ctx.operation.retry(
-                    'Datastores changed while getting vm details.'
-                )
-
-            network_ids = [network._moId for network in item['network']]
-            vm_networks = [
-                network for network in networks
-                if network.id in network_ids
-            ]
-
-            vm = vm_object(
-                name=item['name'],
-                id=item['obj']._moId,
-                summary=summary,
-                obj=item['obj'],
-                datastore=vm_datastores,
-                guest=guest,
-                config=config,
-                network=vm_networks,
-            )
-            vms.append(vm)
-
-        self._cache['vm'] = vms
-
-        return vms
 
     def _get_hosts(self, use_cache=True):
-        if 'host' in self._cache and use_cache:
-            return self._cache['host']
-
         properties = [
             'name',
             'parent',
@@ -615,132 +566,25 @@ class VsphereClient(object):
             'config.network.vswitch',
             'configManager',
         ]
-        host_object = namedtuple(
-            'host',
-            set(
-                [
-                    item.split('.')[0] for item in properties
-                ] + ['id', 'obj']
-            )
+
+        return self._get_entity(
+            entity_name='host',
+            props=properties,
+            vimtype=vim.HostSystem,
+            use_cache=use_cache,
+            other_entity_mappings={
+                'single': {
+                    'parent': self._get_clusters(use_cache=use_cache),
+                },
+                'dynamic': {
+                    'vm': self._get_vms(use_cache=use_cache),
+                    'network': self._get_networks(use_cache=use_cache),
+                },
+                'static': {
+                    'datastore': self._get_datastores(use_cache=use_cache),
+                },
+            },
         )
-        host_hardware = namedtuple(
-            'host_hardware',
-            ['memorySize', 'cpuInfo'],
-        )
-        host_hardware_cpu_info = namedtuple(
-            'host_hardware_cpu_info',
-            ['numCpuThreads'],
-        )
-        host_summary = namedtuple(
-            'host_summary',
-            ['runtime'],
-        )
-        host_summary_runtime = namedtuple(
-            'host_summary_runtime',
-            ['connectionState'],
-        )
-        host_config = namedtuple(
-            'host_config',
-            ['network'],
-        )
-        host_config_network = namedtuple(
-            'host_config_network',
-            ['vswitch'],
-        )
-
-        networks = self._get_networks(use_cache)
-        vms = self._get_vms(use_cache)
-        datastores = self._get_datastores(use_cache)
-        clusters = self._get_clusters(use_cache)
-
-        results = self._collect_properties(
-            vim.HostSystem,
-            path_set=properties,
-        )
-
-        hosts = []
-        for item in results:
-            config = host_config(
-                network=host_config_network(
-                    vswitch=item['config.network.vswitch'],
-                )
-            )
-
-            summary = host_summary(
-                runtime=host_summary_runtime(
-                    connectionState=item['summary.runtime.connectionState'],
-                )
-            )
-
-            hardware = host_hardware(
-                memorySize=item['hardware.memorySize'],
-                cpuInfo=host_hardware_cpu_info(
-                    numCpuThreads=item['hardware.cpuInfo.numCpuThreads'],
-                )
-            )
-
-            # We may end up finding less VMs than we expect, which could lead
-            # to less optimal placement of VMs on hosts.
-            # However, this could occur even without the caching and as this
-            # plugin is expected to be working on the platform, we will accept
-            # changes in VMs without complaining.
-            vm_ids = [vm._moId for vm in item['vm']]
-            host_vms = [
-                vm for vm in vms
-                if vm.id in vm_ids
-            ]
-
-            # Same situation as VMs- less may appear, but this plugin also
-            # manages them so we will continue without complaint.
-            network_ids = [network._moId for network in item['network']]
-            host_networks = [
-                network for network in networks
-                if network.id in network_ids
-            ]
-
-            datastore_ids = [
-                datastore._moId for datastore in item['datastore']
-            ]
-            host_datastores = [
-                datastore for datastore in datastores
-                if datastore.id in datastore_ids
-            ]
-            if len(datastore_ids) != len(host_datastores):
-                return ctx.operation.retry(
-                    'Datastores changed while getting host details.'
-                )
-
-            parent = None
-            if isinstance(item['parent'], vim.ClusterComputeResource):
-                parent_id = item['parent']._moId
-                for cluster in clusters:
-                    if cluster.id == parent_id:
-                        parent = cluster
-                        break
-                if parent is None:
-                    return ctx.operation.retry(
-                        'Clusters changed while getting host details.'
-                    )
-
-            host = host_object(
-                name=item['name'],
-                overallStatus=item['overallStatus'],
-                summary=summary,
-                vm=host_vms,
-                network=host_networks,
-                datastore=host_datastores,
-                parent=parent,
-                id=item['obj']._moId,
-                hardware=hardware,
-                obj=item['obj'],
-                config=config,
-                configManager=item['configManager'],
-            )
-            hosts.append(host)
-
-        self._cache['host'] = hosts
-
-        return hosts
 
     def _get_getter_method(self, vimtype):
         getter_method = {
@@ -1355,10 +1199,14 @@ class ServerClient(VsphereClient):
                     ident = vim.vm.customization.Sysprep()
                     ident.userData = vim.vm.customization.UserData()
                     ident.guiUnattended = vim.vm.customization.GuiUnattended()
-                    ident.identification = vim.vm.customization.Identification()
+                    ident.identification = (
+                        vim.vm.customization.Identification()
+                    )
 
                     # Configure userData
-                    ident.userData.computerName = vim.vm.customization.FixedName()
+                    ident.userData.computerName = (
+                        vim.vm.customization.FixedName()
+                    )
                     ident.userData.computerName.name = vm_name
                     # Without these vars, customization is silently skipped
                     # but deployment 'succeeds'
@@ -1368,7 +1216,9 @@ class ServerClient(VsphereClient):
 
                     # Configure guiUnattended
                     ident.guiUnattended.autoLogon = False
-                    ident.guiUnattended.password = vim.vm.customization.Password()
+                    ident.guiUnattended.password = (
+                        vim.vm.customization.Password()
+                    )
                     ident.guiUnattended.password.plainText = True
                     ident.guiUnattended.password.value = password
                     ident.guiUnattended.timeZone = timezone
@@ -1407,7 +1257,11 @@ class ServerClient(VsphereClient):
                 "Error during executing VM creation task. VM name: \'{0}\'."
                 .format(vm_name))
 
-        vm = self._get_obj_by_name(vim.VirtualMachine, vm_name, use_cache=False)
+        vm = self._get_obj_by_name(
+            vim.VirtualMachine,
+            vm_name,
+            use_cache=False,
+        )
         ctx.instance.runtime_properties[NETWORKS] = \
             self.get_vm_networks(vm)
         ctx.logger.debug('Updated runtime properties with network information')

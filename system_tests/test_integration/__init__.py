@@ -39,7 +39,9 @@ def categorise_calls(call_list):
                 call_type = call_type.format(types=types)
             except (KeyError, IndexError):
                 pass
-        elif base_call_type == 'vmodl.query.PropertyCollector:propertyCollector':
+        elif base_call_type == (
+            'vmodl.query.PropertyCollector:propertyCollector'
+        ):
             try:
                 props = ','.join([
                     item for item in

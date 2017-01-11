@@ -6,6 +6,7 @@ from pyVmomi import vim
 from . import categorise_calls
 import copy
 
+
 class VsphereIntegrationTest(TestCase):
     get_vm_expected_calls = {
         'get_Datastore_list': 1,
@@ -68,7 +69,10 @@ class VsphereIntegrationTest(TestCase):
         'get_Datastore_list': 1,
         'get_containerview_session': 1,
         'get_properties_content_from_ServiceInstance': 3,
-        'get_properties_name,overallStatus,summary.accessible,summary.freeSpace_from_Datastore': 1,
+        (
+            'get_properties_name,overallStatus,summary.accessible,'
+            'summary.freeSpace_from_Datastore'
+        ): 1,
         'get_service_instance': 1,
         'total': 7,
     }
@@ -79,7 +83,10 @@ class VsphereIntegrationTest(TestCase):
         'get_VmwareDistributedVirtualSwitch_list': 1,
         'get_containerview_session': 3,
         'get_properties_content_from_ServiceInstance': 9,
-        'get_properties_key,config.distributedVirtualSwitch_from_DistributedVirtualPortgroup': 1,
+        (
+            'get_properties_key,'
+            'config.distributedVirtualSwitch_from_DistributedVirtualPortgroup'
+        ): 1,
         'get_properties_name,host_from_Network': 1,
         'get_properties_name,uuid_from_VmwareDistributedVirtualSwitch': 1,
         'get_service_instance': 1,
@@ -105,10 +112,19 @@ class VsphereIntegrationTest(TestCase):
         'get_VmwareDistributedVirtualSwitch_list': 1,
         'get_containerview_session': 5,
         'get_properties_content_from_ServiceInstance': 15,
-        'get_properties_key,config.distributedVirtualSwitch_from_DistributedVirtualPortgroup': 1,
+        (
+            'get_properties_key,'
+            'config.distributedVirtualSwitch_from_DistributedVirtualPortgroup'
+        ): 1,
         'get_properties_name,host_from_Network': 1,
-        'get_properties_name,overallStatus,summary.accessible,summary.freeSpace_from_Datastore': 1,
-        'get_properties_name,summary,config.hardware.device,datastore,guest.guestState,guest.net,network_from_VirtualMachine': 1,
+        (
+            'get_properties_name,overallStatus,summary.accessible,'
+            'summary.freeSpace_from_Datastore'
+        ): 1,
+        (
+            'get_properties_name,summary,config.hardware.device,datastore,'
+            'guest.guestState,guest.net,network_from_VirtualMachine'
+        ): 1,
         'get_properties_name,uuid_from_VmwareDistributedVirtualSwitch': 1,
         'get_service_instance': 1,
         'total': 31,
@@ -125,13 +141,28 @@ class VsphereIntegrationTest(TestCase):
         'get_VmwareDistributedVirtualSwitch_list': 1,
         'get_containerview_session': 8,
         'get_properties_content_from_ServiceInstance': 24,
-        'get_properties_key,config.distributedVirtualSwitch_from_DistributedVirtualPortgroup': 1,
+        (
+            'get_properties_key,'
+            'config.distributedVirtualSwitch'
+            '_from_DistributedVirtualPortgroup'
+        ): 1,
         'get_properties_name,host_from_Network': 1,
-        'get_properties_name,overallStatus,summary.accessible,summary.freeSpace_from_Datastore': 1,
-        'get_properties_name,parent,hardware.memorySize,hardware.cpuInfo.numCpuThreads,overallStatus,network,summary.runtime.connectionState,vm,datastore,config.network.vswitch,configManager_from_HostSystem': 1,
+        (
+            'get_properties_name,overallStatus,summary.accessible,'
+            'summary.freeSpace_from_Datastore'
+        ): 1,
+        (
+            'get_properties_name,parent,hardware.memorySize,'
+            'hardware.cpuInfo.numCpuThreads,overallStatus,network,'
+            'summary.runtime.connectionState,vm,datastore,'
+            'config.network.vswitch,configManager_from_HostSystem'
+        ): 1,
         'get_properties_name,resourcePool_from_ClusterComputeResource': 1,
         'get_properties_name,resourcePool_from_ResourcePool': 1,
-        'get_properties_name,summary,config.hardware.device,datastore,guest.guestState,guest.net,network_from_VirtualMachine': 1,
+        (
+            'get_properties_name,summary,config.hardware.device,datastore,'
+            'guest.guestState,guest.net,network_from_VirtualMachine'
+        ): 1,
         'get_properties_name,uuid_from_VmwareDistributedVirtualSwitch': 1,
         'get_service_instance': 1,
         'total': 49,
@@ -151,7 +182,6 @@ class VsphereIntegrationTest(TestCase):
             'password': self.env.cloudify_config['vsphere_password'],
             'port': self.env.cloudify_config.get('vsphere_port', 443),
         }
-
 
         self.client = ServerClient()
         self.client.connect(cfg=self.cfg)
@@ -333,7 +363,7 @@ class VsphereIntegrationTest(TestCase):
         self._check_attrs(
             dvswitch,
             [
-               'uuid', 
+                'uuid',
             ],
         )
 
@@ -554,94 +584,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_datastores_caches(self):   
+    def test_get_datastores_caches(self):
         self.client._get_datastores()
         self.client._get_datastores()
         expected_calls = self.get_datastores_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_datastores_no_cache(self):   
-        self.client._get_datastores(use_cache=False)
-        self.client._get_datastores(use_cache=False)
-        expected_calls = self._get_nocache_expectation(
-            self.get_datastores_expected_calls
-        )
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores(self):
-        datastores = self.client._get_datastores()
-
-        expected_calls = self.get_datastores_expected_calls
-
-        for datastore in datastores:
-            self._check_datastore(datastore)
-
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_caches(self):   
-        self.client._get_datastores()
-        self.client._get_datastores()
-        expected_calls = self.get_datastores_expected_calls
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_no_cache(self):   
-        self.client._get_datastores(use_cache=False)
-        self.client._get_datastores(use_cache=False)
-        expected_calls = self._get_nocache_expectation(
-            self.get_datastores_expected_calls
-        )
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-    def test_get_datastores(self):
-        datastores = self.client._get_datastores()
-
-        expected_calls = self.get_datastores_expected_calls
-
-        for datastore in datastores:
-            self._check_datastore(datastore)
-
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_caches(self):   
-        self.client._get_datastores()
-        self.client._get_datastores()
-        expected_calls = self.get_datastores_expected_calls
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_no_cache(self):   
-        self.client._get_datastores(use_cache=False)
-        self.client._get_datastores(use_cache=False)
-        expected_calls = self._get_nocache_expectation(
-            self.get_datastores_expected_calls
-        )
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores(self):
-        datastores = self.client._get_datastores()
-
-        expected_calls = self.get_datastores_expected_calls
-
-        for datastore in datastores:
-            self._check_datastore(datastore)
-
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_caches(self):   
-        self.client._get_datastores()
-        self.client._get_datastores()
-        expected_calls = self.get_datastores_expected_calls
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_no_cache(self):   
+    def test_get_datastores_no_cache(self):
         self.client._get_datastores(use_cache=False)
         self.client._get_datastores(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -661,14 +611,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_resource_pools_caches(self):   
+    def test_get_resource_pools_caches(self):
         self.client._get_resource_pools()
         self.client._get_resource_pools()
         expected_calls = self.get_resource_pools_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_resource_pools_no_cache(self):   
+    def test_get_resource_pools_no_cache(self):
         self.client._get_resource_pools(use_cache=False)
         self.client._get_resource_pools(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -688,14 +638,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_clusters_caches(self):   
+    def test_get_clusters_caches(self):
         self.client._get_clusters()
         self.client._get_clusters()
         expected_calls = self.get_clusters_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_clusters_no_cache(self):   
+    def test_get_clusters_no_cache(self):
         self.client._get_clusters(use_cache=False)
         self.client._get_clusters(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -715,45 +665,18 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_datacenters_caches(self):   
+    def test_get_datacenters_caches(self):
         self.client._get_datacenters()
         self.client._get_datacenters()
         expected_calls = self.get_datacenters_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_datacenters_no_cache(self):   
+    def test_get_datacenters_no_cache(self):
         self.client._get_datacenters(use_cache=False)
         self.client._get_datacenters(use_cache=False)
         expected_calls = self._get_nocache_expectation(
             self.get_datacenters_expected_calls
-        )
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores(self):
-        datastores = self.client._get_datastores()
-
-        expected_calls = self.get_datastores_expected_calls
-
-        for datastore in datastores:
-            self._check_datastore(datastore)
-
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_caches(self):   
-        self.client._get_datastores()
-        self.client._get_datastores()
-        expected_calls = self.get_datastores_expected_calls
-        calls = categorise_calls(self.platform_caller.call_args_list)
-        self.assertEqual(expected_calls, calls)
-
-    def test_get_datastores_no_cache(self):   
-        self.client._get_datastores(use_cache=False)
-        self.client._get_datastores(use_cache=False)
-        expected_calls = self._get_nocache_expectation(
-            self.get_datastores_expected_calls
         )
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
@@ -769,14 +692,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_networks_caches(self):   
+    def test_get_networks_caches(self):
         self.client._get_networks()
         self.client._get_networks()
         expected_calls = self.get_networks_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_networks_no_cache(self):   
+    def test_get_networks_no_cache(self):
         self.client._get_networks(use_cache=False)
         self.client._get_networks(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -796,14 +719,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_dv_networks_caches(self):   
+    def test_get_dv_networks_caches(self):
         self.client._get_dv_networks()
         self.client._get_dv_networks()
         expected_calls = self.get_dv_networks_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_dv_networks_no_cache(self):   
+    def test_get_dv_networks_no_cache(self):
         self.client._get_dv_networks(use_cache=False)
         self.client._get_dv_networks(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -823,14 +746,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_dvswitches_caches(self):   
+    def test_get_dvswitches_caches(self):
         self.client._get_dvswitches()
         self.client._get_dvswitches()
         expected_calls = self.get_dvswitches_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_dvswitches_no_cache(self):   
+    def test_get_dvswitches_no_cache(self):
         self.client._get_dvswitches(use_cache=False)
         self.client._get_dvswitches(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -850,14 +773,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_vms_caches(self):   
+    def test_get_vms_caches(self):
         self.client._get_vms()
         self.client._get_vms()
         expected_calls = self.get_vms_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_vms_no_cache(self):   
+    def test_get_vms_no_cache(self):
         self.client._get_vms(use_cache=False)
         self.client._get_vms(use_cache=False)
         expected_calls = self._get_nocache_expectation(
@@ -877,14 +800,14 @@ class VsphereIntegrationTest(TestCase):
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_hosts_caches(self):   
+    def test_get_hosts_caches(self):
         self.client._get_hosts()
         self.client._get_hosts()
         expected_calls = self.get_hosts_expected_calls
         calls = categorise_calls(self.platform_caller.call_args_list)
         self.assertEqual(expected_calls, calls)
 
-    def test_get_hosts_no_cache(self):   
+    def test_get_hosts_no_cache(self):
         self.client._get_hosts(use_cache=False)
         self.client._get_hosts(use_cache=False)
         # Slightly different to the amount of calls for other no_caches
@@ -899,13 +822,29 @@ class VsphereIntegrationTest(TestCase):
             'get_VmwareDistributedVirtualSwitch_list': 4,
             'get_containerview_session': 24,
             'get_properties_content_from_ServiceInstance': 72,
-            'get_properties_key,config.distributedVirtualSwitch_from_DistributedVirtualPortgroup': 4,
+            (
+                'get_properties_key,'
+                'config.distributedVirtualSwitch'
+                '_from_DistributedVirtualPortgroup'
+            ): 4,
             'get_properties_name,host_from_Network': 4,
-            'get_properties_name,overallStatus,summary.accessible,summary.freeSpace_from_Datastore': 4,
-            'get_properties_name,parent,hardware.memorySize,hardware.cpuInfo.numCpuThreads,overallStatus,network,summary.runtime.connectionState,vm,datastore,config.network.vswitch,configManager_from_HostSystem': 2,
+            (
+                'get_properties_name,overallStatus,summary.accessible,'
+                'summary.freeSpace_from_Datastore'
+            ): 4,
+            (
+                'get_properties_name,parent,hardware.memorySize,'
+                'hardware.cpuInfo.numCpuThreads,overallStatus,network,'
+                'summary.runtime.connectionState,vm,datastore,'
+                'config.network.vswitch,configManager_from_HostSystem'
+            ): 2,
             'get_properties_name,resourcePool_from_ClusterComputeResource': 2,
             'get_properties_name,resourcePool_from_ResourcePool': 2,
-            'get_properties_name,summary,config.hardware.device,datastore,guest.guestState,guest.net,network_from_VirtualMachine': 2,
+            (
+                'get_properties_name,summary,config.hardware.device,'
+                'datastore,guest.guestState,guest.net,'
+                'network_from_VirtualMachine'
+            ): 2,
             'get_properties_name,uuid_from_VmwareDistributedVirtualSwitch': 4,
             'get_service_instance': 1,
             'total': 145,
