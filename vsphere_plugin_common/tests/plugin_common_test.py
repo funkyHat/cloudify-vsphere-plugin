@@ -1768,7 +1768,7 @@ class VspherePluginsCommonTests(unittest.TestCase):
         self.assertTrue(result)
 
     @patch('vsphere_plugin_common.vim.dvs.DistributedVirtualPortgroup')
-    def test_port_group_is_distributed(self,
+    def test_port_group_not_distributed(self,
                                        mock_distributed_port_group_type):
         port_group = Mock()
         port_group.id = 'somethingelse-456'
