@@ -552,6 +552,26 @@ class VsphereClient(object):
             },
         )
 
+    def _get_computes(self, use_cache=True):
+        properties = [
+            'name',
+            'resourcePool',
+        ]
+
+        return self._get_entity(
+            entity_name='compute',
+            props=properties,
+            vimtype=vim.ComputeResource,
+            use_cache=use_cache,
+            other_entity_mappings={
+                'single': {
+                    'resourcePool': self._get_resource_pools(
+                        use_cache=use_cache,
+                    ),
+                },
+            },
+        )
+
     def _get_hosts(self, use_cache=True):
         properties = [
             'name',
@@ -567,6 +587,8 @@ class VsphereClient(object):
             'configManager',
         ]
 
+        # A host's parent can be either a cluster or a compute, so we handle
+        # both here.
         return self._get_entity(
             entity_name='host',
             props=properties,
@@ -574,7 +596,8 @@ class VsphereClient(object):
             use_cache=use_cache,
             other_entity_mappings={
                 'single': {
-                    'parent': self._get_clusters(use_cache=use_cache),
+                    'parent': (self._get_clusters(use_cache=use_cache) +
+                               self._get_computes(use_cache=use_cache)),
                 },
                 'dynamic': {
                     'vm': self._get_vms(use_cache=use_cache),
